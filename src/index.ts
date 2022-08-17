@@ -1,4 +1,16 @@
 import express, { Request, Response } from 'express';
+import request from 'request';
+
+// URLS
+const SOLSCAN = 'https://public-api.solscan.io';
+const SOLSCAN_TOKEN_HOLDER = `${SOLSCAN}/token/holders`;
+
+const makeAPICall = (url:string) => new Promise((resolve, reject) => {
+  request(url, { json: true }, (err, res, body) => {
+    if (err) reject(err);
+    resolve(body);
+  });
+});
 
 const app = express();
 const port = 8080;
@@ -6,21 +18,21 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // HOME
-app.get('/', async (req: Request, res: Response): Promise<Response> => res.status(200).send({
-  message: 'Hello World!',
-}));
+app.get('/owners', async (req: Request, res: Response) => {
+  const tokens: string[] = req.body.tokenAddresses;
 
-// MORE ROUTES
-const testRouter = express.Router();
-testRouter.route('/').get((req: Request, res: Response) => {
-  res.status(200)
-    .send({ message: 'hello test' });
+  const promises = tokens.map((tokenAddress:string) => {
+    const url = `${SOLSCAN_TOKEN_HOLDER}?tokenAddress=${tokenAddress}`;
+
+    return makeAPICall(url);
+  });
+  const resp = await Promise.all(promises);
+  const owners = resp.map((response: any) => response.data.map((holder:any) => holder.owner));
+
+  res.status(200).send({
+    owners,
+  });
 });
-testRouter.route('/:testId').get((req: Request, res: Response) => {
-  res.status(200)
-    .send({ message: `hello user id ${req.params.testId}` });
-});
-app.use('/test', testRouter);
 
 // START SERVER
 app.listen(port, () => {
