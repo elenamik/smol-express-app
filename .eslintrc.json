@@ -15,5 +15,7 @@
         "@typescript-eslint"
     ],
     "rules": {
+        "no-restricted-syntax": "off",
+        "no-await-in-loop": "off"
     }
 }

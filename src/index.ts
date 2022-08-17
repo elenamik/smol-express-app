@@ -7,6 +7,27 @@ const SOLSCAN_TOKEN_HOLDER = `${SOLSCAN}/token/holders`;
 const SOLSCAN_TOKEN_META = `${SOLSCAN}/token/meta`;
 const SOLSCAN_ACCOUNT_TOKENS = `${SOLSCAN}/account/tokens`;
 
+interface Token {
+  tokenAddress: string
+}
+interface WalletWithToken {
+  walletAddress: string,
+  tokens:Token[]
+}
+
+interface TokenWithMetaData {
+  tokenAddress: string
+  meta: {
+    name: string,
+    symbol: string,
+    tokenAuthority:string
+  }
+}
+interface WalletWithTokenMetaData {
+  walletAddress: string,
+  tokens:TokenWithMetaData[]
+}
+
 const getOwnerOfToken = (tokenAddress:string) => new Promise((resolve, reject) => {
   const url = `${SOLSCAN_TOKEN_HOLDER}?tokenAddress=${tokenAddress}`;
   request(url, { json: true }, (err, res, body) => {
@@ -31,39 +52,40 @@ const getMetaForToken = (tokenAddress:string) => new Promise((resolve, reject) =
   });
 });
 
+const getMetaForAllTokens = (tokenAddresses:string[]) => {
+  const promises = tokenAddresses.map((tokenAddress:string) => getMetaForToken(tokenAddress));
+  return Promise.all(promises);
+};
+
 const app = express();
 const port = 8080;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.get('/owners', async (req: Request, res: Response) => {
+app.get('/getData', async (req: Request, res: Response) => {
   const tokens: string[] = req.body.tokenAddresses;
   const promises = tokens.map((tokenAddress:string) => getOwnerOfToken(tokenAddress));
   const resp = await Promise.all(promises);
   const owners = resp.map((response: any) => response.data.map((holder:any) => holder.owner));
-  res.status(200).send({
-    walletAddresses: owners.flat(1),
-  });
-});
+  const walletAddresses = owners.flat(1);
 
-app.get('/tokens', async (req: Request, res: Response) => {
-  const tokens: string[] = req.body.walletAddresses;
-  const tokenReqs = tokens.map((walletAddress:string) => getTokensForAddress(walletAddress));
-  const tokensForAllWallets = await Promise.all(tokenReqs);
+  const walletTokenData: WalletWithToken[] = [];
+  for (const walletAddress of walletAddresses) {
+    // @ts-ignore
+    walletTokenData.push(await getTokensForAddress(walletAddress));
+  }
 
-  // eslint-disable-next-line max-len
-  const completeTokenData = tokensForAllWallets.map(async (tokensPerWallet: {wallet:string, tokens:{tokenAddress:string}[]}) => {
-    const tokenAddresses = tokensPerWallet.tokens.map((token:any) => token.tokenAddress);
-    const metaReqs = tokenAddresses.map((tokenAddress:string) => getMetaForToken(tokenAddress));
-    const allTokenMeta = await Promise.all(metaReqs);
-    return {
-      walletAddress: tokensPerWallet.wallet,
-      allTokenMeta,
-    };
-  });
+  const walletWithTokenMetaData: WalletWithTokenMetaData[] = [];
+
+  for (const wallet of walletTokenData) {
+    const tokenAddresses = wallet.tokens.map((token: Token) => token.tokenAddress);
+    // @ts-ignore
+    const allTokenMeta: TokenWithMetaData[] = await getMetaForAllTokens(tokenAddresses);
+    walletWithTokenMetaData.push({ walletAddress: wallet.walletAddress, tokens: allTokenMeta });
+  }
 
   res.status(200).send({
-    completeTokenData,
+    walletWithTokenMetaData,
   });
 });
 
